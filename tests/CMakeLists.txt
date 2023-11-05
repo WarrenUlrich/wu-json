@@ -1,0 +1,2 @@
+add_subdirectory(tokenization_test)
+add_subdirectory(deserialization_test)
