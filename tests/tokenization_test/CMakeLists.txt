@@ -1,13 +1,10 @@
+# Tokenization test
 add_executable(
     tokenization_test 
-        src/tokenization_test.cpp
+        src/main.cpp
 )
 
-set_target_properties(tokenization_test PROPERTIES
-    CXX_STANDARD 20
-    CXX_STANDARD_REQUIRED ON
-    CXX_EXTENSIONS ON
-)
+target_compile_features(tokenization_test PUBLIC cxx_std_23)
 
 target_link_libraries(
   tokenization_test PRIVATE 

@@ -12,11 +12,8 @@ target_include_directories(${PROJECT_NAME}
         $<INSTALL_INTERFACE:include>
 )
 
-set_target_properties(${PROJECT_NAME} PROPERTIES
-    CXX_STANDARD 20
-    CXX_STANDARD_REQUIRED ON
-    CXX_EXTENSIONS ON
-)
+target_compile_features(${PROJECT_NAME} INTERFACE cxx_std_23)
 
 enable_testing()
-add_subdirectory(tests)
+
+add_subdirectory(tests/tokenization_test)

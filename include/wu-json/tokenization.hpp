@@ -1,272 +1,460 @@
 #pragma once
 
 #include <concepts>
-#include <iterator>
 #include <ranges>
+#include <string_view>
 
-namespace json {
-
-template <typename Iterator> class base_token {
+namespace wu::json {
+template <typename Iterator> class token {
 public:
-  using char_t = typename Iterator::value_type;
+  using char_type =
+      std::iterator_traits<Iterator>::value_type;
 
-  using value_t =
+  constexpr virtual std::basic_string_view<char_type>
+  value() const noexcept = 0;
+};
+
+template <typename Iterator>
+class object_begin_token : public token<Iterator> {
+public:
+  using char_type =
+      std::iterator_traits<Iterator>::value_type;
+
+  constexpr std::basic_string_view<char_type>
+  value() const noexcept override {
+    return "{";
+  }
+};
+
+template <typename Iterator>
+class object_end_token : public token<Iterator> {
+public:
+  using char_type =
+      std::iterator_traits<Iterator>::value_type;
+
+  constexpr std::basic_string_view<char_type>
+  value() const noexcept override {
+    return "}";
+  }
+};
+
+template <typename Iterator>
+class array_begin_token : public token<Iterator> {
+public:
+  using char_type =
+      std::iterator_traits<Iterator>::value_type;
+
+  constexpr std::basic_string_view<char_type>
+  value() const noexcept override {
+    return "[";
+  }
+};
+
+template <typename Iterator>
+class array_end_token : public token<Iterator> {
+public:
+  using char_type =
+      std::iterator_traits<Iterator>::value_type;
+
+  constexpr std::basic_string_view<char_type>
+  value() const noexcept override {
+    return "]";
+  }
+};
+
+template <typename Iterator>
+class name_separator_token : public token<Iterator> {
+public:
+  using char_type =
+      std::iterator_traits<Iterator>::value_type;
+  constexpr std::basic_string_view<char_type>
+  value() const noexcept override {
+    return ":";
+  }
+};
+
+template <typename Iterator>
+class value_separator_token : public token<Iterator> {
+public:
+  using char_type =
+      std::iterator_traits<Iterator>::value_type;
+  constexpr std::basic_string_view<char_type>
+  value() const noexcept override {
+    return ",";
+  }
+};
+
+template <typename Iterator>
+class boolean_true_token : public token<Iterator> {
+public:
+  using char_type =
+      std::iterator_traits<Iterator>::value_type;
+
+  constexpr std::basic_string_view<char_type>
+  value() const noexcept override {
+    return "true";
+  }
+
+  static constexpr std::optional<boolean_true_token>
+  try_parse(Iterator &begin, Iterator end) noexcept {
+    static constexpr std::basic_string_view<char_type>
+        true_literal = "true";
+
+    if constexpr (std::contiguous_iterator<Iterator>) {
+      size_t distance = std::distance(begin, end);
+      if (distance >= true_literal.size()) {
+        auto view = std::basic_string_view<char_type>(
+            &*begin, true_literal.size());
+        if (view == true_literal)
+          return boolean_true_token{};
+      }
+    } else {
+      // Fallback to non-contiguous iterator handling
+      auto it = begin;
+      for (char_type ch : true_literal) {
+        if (it == end || *it != ch) {
+          return std::nullopt;
+        }
+        ++it;
+      }
+      begin = it; // Move the iterator past the parsed token
+      return boolean_true_token{};
+    }
+
+    return std::nullopt;
+  }
+};
+
+template <typename Iterator>
+class boolean_false_token : public token<Iterator> {
+public:
+  using char_type =
+      std::iterator_traits<Iterator>::value_type;
+
+  constexpr std::basic_string_view<char_type>
+  value() const noexcept override {
+    return "false";
+  }
+
+  static constexpr std::optional<boolean_false_token>
+  try_parse(Iterator &begin, Iterator end) noexcept {
+    static constexpr std::basic_string_view<char_type>
+        false_literal = "false";
+
+    if constexpr (std::contiguous_iterator<Iterator>) {
+      size_t distance = std::distance(begin, end);
+      if (distance >= false_literal.size()) {
+        auto view = std::basic_string_view<char_type>(
+            &*begin, false_literal.size());
+        if (view == false_literal)
+          return boolean_false_token{};
+      }
+    } else {
+      auto it = begin;
+      for (char_type ch : false_literal) {
+        if (it == end || *it != ch) {
+          return std::nullopt;
+        }
+        ++it;
+      }
+      begin = it;
+      return boolean_false_token{};
+    }
+
+    return std::nullopt;
+  }
+};
+
+template <typename Iterator>
+class null_token : public token<Iterator> {
+public:
+  using char_type =
+      std::iterator_traits<Iterator>::value_type;
+
+  constexpr std::basic_string_view<char_type>
+  value() const noexcept override {
+    return "null";
+  }
+
+  static constexpr std::optional<null_token>
+  try_parse(Iterator &begin, Iterator end) noexcept {
+    static constexpr std::basic_string_view<char_type>
+        null_literal = "null";
+
+    if constexpr (std::contiguous_iterator<Iterator>) {
+      size_t distance = std::distance(begin, end);
+      if (distance >= null_literal.size()) {
+        auto view = std::basic_string_view<char_type>(
+            &*begin, null_literal.size());
+        if (view == null_literal)
+          return null_token{};
+      }
+    } else {
+      auto it = begin;
+      for (char_type ch : null_literal) {
+        if (it == end || *it != ch) {
+          return std::nullopt;
+        }
+        ++it;
+      }
+      begin = it;
+      return null_token{};
+    }
+
+    return std::nullopt;
+  }
+};
+
+template <typename Iterator>
+class number_token : public token<Iterator> {
+public:
+  using char_type =
+      std::iterator_traits<Iterator>::value_type;
+
+  using value_type =
       std::conditional_t<std::contiguous_iterator<Iterator>,
-                         std::basic_string_view<char_t>,
-                         std::basic_string<char_t>>;
+                         std::basic_string_view<char_type>,
+                         std::basic_string<char_type>>;
 
-  value_t value;
+  constexpr number_token(const value_type &value)
+      : _value(value) {}
 
-  base_token(const value_t &value) : value(value) {}
+  constexpr number_token(value_type &&value)
+      : _value(std::forward<value_type>(value)) {}
 
-  base_token(value_t &&value) : value(std::move(value)) {}
+  constexpr std::basic_string_view<char_type>
+  value() const noexcept override {
+    return _value;
+  }
+
+  static constexpr std::optional<number_token>
+  try_parse(Iterator &begin, Iterator end) noexcept {
+    if (begin == end) {
+      return std::nullopt;
+    }
+
+    auto it = begin;
+    bool is_number = false;
+
+    // Optional minus sign
+    if (*it == '-') {
+      ++it;
+      if (it == end) {
+        return std::nullopt;
+      }
+    }
+
+    auto is_digit = [](char c) constexpr noexcept {
+      return c >= '0' && c <= '9';
+    };
+
+    // Digits before decimal point
+    if (is_digit(*it)) {
+      is_number = true;
+      while (it != end && is_digit(*it)) {
+        ++it;
+      }
+    }
+
+    // Decimal point and digits after it
+    if (it != end && *it == '.') {
+      ++it;
+      if (it != end && is_digit(*it)) {
+        is_number = true;
+        while (it != end && is_digit(*it)) {
+          ++it;
+        }
+      }
+    }
+
+    // Exponent part
+    if (it != end && (*it == 'e' || *it == 'E')) {
+      ++it;
+      if (it != end && (*it == '+' || *it == '-')) {
+        ++it;
+      }
+      if (it == end || !is_digit(*it)) {
+        return std::nullopt;
+      }
+      while (it != end && is_digit(*it)) {
+        ++it;
+      }
+    }
+
+    if (!is_number) {
+      return std::nullopt;
+    }
+
+    value_type parsed_value(begin, it);
+    begin = it; // Update the iterator
+    return number_token(parsed_value);
+  }
+
+private:
+  value_type _value;
 };
 
 template <typename Iterator>
-class string_token : public base_token<Iterator> {
+class string_token : public token<Iterator> {
 public:
-  string_token(const base_token<Iterator>::value_t &value)
-      : base_token<Iterator>(value) {}
+  using char_type =
+      std::iterator_traits<Iterator>::value_type;
 
-  string_token(base_token<Iterator>::value_t &&value)
-      : base_token<Iterator>(std::move(value)) {}
+  using value_type =
+      std::conditional_t<std::contiguous_iterator<Iterator>,
+                         std::basic_string_view<char_type>,
+                         std::basic_string<char_type>>;
+
+  constexpr string_token(const value_type &value)
+      : _value(value) {}
+
+  constexpr string_token(value_type &&value)
+      : _value(std::forward<value_type>(value)) {}
+
+  constexpr std::basic_string_view<char_type>
+  value() const noexcept override {
+    return _value;
+  }
+
+  // static constexpr std::optional<string_token>
+  // try_parse(Iterator &begin, Iterator end) noexcept {
+  //   if (begin == end || *begin != '"') {
+  //     return std::nullopt;
+  //   }
+
+  //   auto it =
+  //       std::next(begin); // Move past the opening quote
+
+  //   while (it != end) {
+  //     if (*it == '\\') {
+  //       // Skip the next character, as it is escaped
+  //       ++it;
+  //       if (it == end) {
+  //         return std::nullopt; // Unterminated or improperly
+  //                              // terminated string
+  //       }
+  //     } else if (*it == '"') {
+  //       // Found the closing quote
+  //       break;
+  //     }
+  //     ++it;
+  //   }
+
+  //   if (it == end) {
+  //     return std::nullopt; // Unterminated string
+  //   }
+
+  //   if constexpr (std::contiguous_iterator<Iterator>) {
+  //     std::basic_string_view<char_type> parsed_value(
+  //         &*begin, std::distance(begin, it) + 1);
+  //     begin = std::next(it); // Move past the closing quote
+  //     return string_token(parsed_value);
+  //   } else {
+  //     std::basic_string<char_type> parsed_value(
+  //         begin, std::next(it)); // Include the quotes
+  //     begin = std::next(it); // Move past the closing quote
+  //     return string_token(parsed_value);
+  //   }
+  // }
+
+  static constexpr std::optional<string_token>
+  try_parse(Iterator &begin, Iterator end) noexcept {
+    if (begin == end || *begin != '"') {
+      return std::nullopt;
+    }
+
+    auto start = std::next(begin); // Move past the opening quote
+    auto it = start;
+
+    while (it != end) {
+      if (*it == '\\') {
+        // Skip the next character, as it is escaped
+        ++it;
+        if (it == end) {
+          return std::nullopt; // Unterminated or improperly terminated string
+        }
+      } else if (*it == '"') {
+        // Found the closing quote
+        auto trimmed_value = std::basic_string_view<char_type>(start, it - start);
+        begin = std::next(it); // Move past the closing quote
+        return string_token(trimmed_value);
+      }
+      ++it;
+    }
+
+    return std::nullopt; // Unterminated string
+  }
+  
+private:
+  value_type _value;
 };
-
-template <typename Iterator>
-class number_token : public base_token<Iterator> {
-public:
-  number_token(const base_token<Iterator>::value_t &value)
-      : base_token<Iterator>(value) {}
-
-  number_token(base_token<Iterator>::value_t &&value)
-      : base_token<Iterator>(std::move(value)) {}
-};
-
-class object_begin_token {};
-
-class object_end_token {};
-
-class array_begin_token {};
-
-class array_end_token {};
-
-class name_seperator_token {};
-
-class value_seperator_token {};
-
-class true_token {};
-
-class false_token {};
-
-class null_token {};
 
 template <std::input_iterator Iterator>
-  requires std::same_as<typename Iterator::value_type,
-                        char> ||
-           std::same_as<typename Iterator::value_type,
-                        wchar_t>
-bool tokenize(Iterator begin, Iterator end,
-              const auto &predicate) noexcept {
-  using char_t = typename Iterator::value_type;
+constexpr bool tokenize(Iterator begin, Iterator end,
+                        auto &&predicate) {
   auto it = begin;
   while (it != end) {
-    while (it != end && std::isspace(*it))
-      ++it;
-
-    if (it == end) {
-      break;
-    }
-
     switch (*it) {
-    case 'n': { // null_token
-      constexpr char null_str[] = "null";
-      if constexpr (std::contiguous_iterator<Iterator>) {
-        if (!(std::distance(it, end) >= 4 &&
-              std::equal(it, it + 4, std::begin(null_str),
-                         std::end(null_str) - 1)))
-          return false;
-
-        if (!predicate(null_token()))
-          return false;
-
-        std::advance(it, 4);
-      } else {
-        for (int i = 0; i < 4 && it != end; ++i, ++it) {
-          if (*it != null_str[i]) {
-            return false; // tokenization error
-          }
-        }
-
-        if (!predicate(null_token()))
-          return false;
-      }
-      break;
-    }
-    case 't': { // true_token
-      constexpr char true_str[] = "true";
-      if constexpr (std::contiguous_iterator<Iterator>) {
-        if (!(std::distance(it, end) >= 4 &&
-              std::equal(it, it + 4, std::begin(true_str),
-                         std::end(true_str) - 1)))
-          return false;
-
-        if (!predicate(true_token()))
-          return false;
-
-        std::advance(it, 4);
-      } else {
-        for (int i = 0; i < 4 && it != end; ++i, ++it) {
-          if (*it != true_str[i]) {
-            return false; // tokenization error
-          }
-        }
-
-        if (!predicate(true_token()))
-          return false;
-      }
-      break;
-    }
-    case 'f': { // false_token
-      constexpr char false_str[] = "false";
-      if constexpr (std::contiguous_iterator<Iterator>) {
-        if (!(std::distance(it, end) >= 5 &&
-              std::equal(it, it + 5, std::begin(false_str),
-                         std::end(false_str) - 1)))
-          return false;
-
-        if (!predicate(false_token()))
-          return false;
-
-        std::advance(it, 5);
-      } else {
-        for (int i = 0; i < 5 && it != end; ++i, ++it) {
-          if (*it != false_str[i]) {
-            return false; // tokenization error
-          }
-        }
-
-        if (!predicate(false_token()))
-          return false;
-      }
-      break;
-    }
-    case '{': { // object_begin_token
-      if (!predicate(object_begin_token()))
-        return false;
-
+    case '{': {
+      predicate(object_begin_token<Iterator>{});
       ++it;
       break;
     }
-    case '}': { // object_end_token
-      if (!predicate(object_end_token()))
-        return false;
-
+    case '}': {
+      predicate(object_end_token<Iterator>{});
       ++it;
       break;
     }
-    case '[': { // array_begin_token
-      if (!predicate(array_begin_token()))
-        return false;
-
+    case '[': {
+      predicate(array_begin_token<Iterator>{});
       ++it;
       break;
     }
-    case ']': { // array_end_token
-      if (!predicate(array_end_token()))
-        return false;
-
+    case ']': {
+      predicate(array_end_token<Iterator>{});
       ++it;
       break;
     }
     case ':': {
-      if (!predicate(name_seperator_token()))
-        return false;
-
+      predicate(name_separator_token<Iterator>{});
       ++it;
       break;
     }
     case ',': {
-      if (!predicate(value_seperator_token()))
-        return false;
-
+      predicate(value_separator_token<Iterator>{});
       ++it;
       break;
     }
-    case '\"': { // string_token
-      if constexpr (std::contiguous_iterator<Iterator>) {
-        ++it; // Skip the initial quotation mark
-        auto start = it;
-        bool escaped = false;
+    case 't': {
+      const auto tok =
+          boolean_true_token<Iterator>::try_parse(it, end);
+      if (!tok.has_value())
+        return false;
 
-        while (it != end) {
-          if (*it == '\\' && !escaped) { // Escape character
-            escaped = true;
-          } else if (*it == '\"' &&
-                     !escaped) { // End of string
-            break;
-          } else {
-            escaped = false;
-          }
-          ++it;
-        }
-
-        if (it == end || *it != '\"') {
-          return false; // End of string not found before
-                        // iterator end
-        }
-
-        typename base_token<Iterator>::value_t string_value(
-            start, it);
-
-        if (!predicate(string_token<Iterator>(
-                std::move(string_value))))
-          return false;
-
-        ++it; // Skip the ending quotation mark
-        break;
-      } else {
-        ++it; // Skip the initial quotation mark
-        std::basic_string<char_t> string_value;
-        bool escaped = false;
-
-        while (it != end) {
-          if (*it == '\\' && !escaped) { // Escape character
-            escaped = true;
-          } else if (*it == '\"' &&
-                     !escaped) { // End of string
-            break;
-          } else {
-            if (escaped && *it != '\"' && *it != '\\') {
-              // If the character following a backslash is
-              // not a quote or another backslash, it should
-              // be treated as a normal character. For
-              // example, in the string "ab\\nc", the
-              // character 'n' follows a backslash but is
-              // not an escape sequence and should be added
-              // to the string as is.
-              string_value.push_back('\\');
-            }
-            string_value.push_back(*it);
-            escaped = false;
-          }
-          ++it;
-        }
-
-        if (it == end || *it != '\"') {
-          return false; // End of string not found before
-                        // iterator end
-        }
-
-        if (!predicate(string_token<Iterator>(
-                std::move(string_value))))
-          return false;
-
-        ++it; // Skip the ending quotation mark
-        break;
-      }
+      predicate(*tok);
+      ++it;
+      break;
     }
-    case '-':
-    case '+':
+    case 'f': {
+      const auto tok =
+          boolean_false_token<Iterator>::try_parse(it, end);
+      if (!tok.has_value())
+        return false;
+
+      predicate(*tok);
+      ++it;
+      break;
+    }
+    case 'n': {
+      const auto tok =
+          null_token<Iterator>::try_parse(it, end);
+      if (!tok.has_value())
+        return false;
+
+      predicate(*tok);
+      ++it;
+      break;
+    }
     case '0':
     case '1':
     case '2':
@@ -276,118 +464,27 @@ bool tokenize(Iterator begin, Iterator end,
     case '6':
     case '7':
     case '8':
-    case '9': { // number_token
-      if constexpr (std::contiguous_iterator<Iterator>) {
-        auto start = it;
+    case '9':
+    case '-': {
+      const auto tok =
+          number_token<Iterator>::try_parse(it, end);
+      if (!tok.has_value())
+        return false;
 
-        // Optional sign part
-        if (*it == '-' || *it == '+') {
-          ++it;
-          if (it == end ||
-              !std::isdigit(
-                  *it)) // After a sign, a digit is expected
-            return false;
-        }
+      predicate(*tok);
+      break;
+    }
+    case '\"': {
+      const auto tok =
+          string_token<Iterator>::try_parse(it, end);
+      if (!tok.has_value())
+        return false;
 
-        // Integer part
-        while (it != end && std::isdigit(*it)) {
-          ++it;
-        }
-
-        // Optional fractional part
-        if (it != end && *it == '.') {
-          ++it;
-          if (it == end ||
-              !std::isdigit(*it)) // There must be at least
-                                  // one digit after '.'
-            return false;
-          while (it != end && std::isdigit(*it)) {
-            ++it;
-          }
-        }
-
-        // Optional exponent part
-        if (it != end && (*it == 'e' || *it == 'E')) {
-          ++it;
-          if (it != end &&
-              (*it == '+' ||
-               *it == '-')) // Optional sign in exponent
-            ++it;
-
-          if (it == end ||
-              !std::isdigit(*it)) // There must be at least
-                                  // one digit in exponent
-            return false;
-
-          while (it != end && std::isdigit(*it)) {
-            ++it;
-          }
-        }
-
-        // Construct number string
-        typename base_token<Iterator>::value_t number_str(
-            start, it);
-
-        // Create token and invoke predicate
-        if (!predicate(number_token<Iterator>(
-                std::move(number_str))))
-          return false;
-      } else { // Non-contiguous single-pass iterator case
-        std::basic_string<char_t> number_chars;
-
-        // Optional sign part
-        if (*it == '-' || *it == '+') {
-          number_chars += *it++;
-          if (it == end ||
-              !std::isdigit(
-                  *it)) // After a sign, a digit is expected
-            return false;
-        }
-
-        // Integer part
-        while (it != end && std::isdigit(*it)) {
-          number_chars += *it++;
-        }
-
-        // Optional fractional part
-        if (it != end && *it == '.') {
-          number_chars += *it++;
-          if (it == end ||
-              !std::isdigit(*it)) // There must be at least
-                                  // one digit after '.'
-            return false;
-          while (it != end && std::isdigit(*it)) {
-            number_chars += *it++;
-          }
-        }
-
-        // Optional exponent part
-        if (it != end && (*it == 'e' || *it == 'E')) {
-          number_chars += *it++;
-          if (it != end &&
-              (*it == '+' ||
-               *it == '-')) // Optional sign in exponent
-            number_chars += *it++;
-
-          if (it == end ||
-              !std::isdigit(*it)) // There must be at least
-                                  // one digit in exponent
-            return false;
-
-          while (it != end && std::isdigit(*it)) {
-            number_chars += *it++;
-          }
-        }
-
-        // Create token and invoke predicate
-        if (!predicate(number_token<Iterator>(
-                std::move(number_chars))))
-          return false;
-      }
+      predicate(*tok);
       break;
     }
     default:
-      return false; // unrecognized token error
+      ++it;
     }
   }
 
@@ -395,12 +492,9 @@ bool tokenize(Iterator begin, Iterator end,
 }
 
 template <std::ranges::input_range Range>
-  requires std::same_as<std::ranges::range_value_t<Range>,
-                        char> ||
-           std::same_as<std::ranges::range_value_t<Range>,
-                        wchar_t>
-bool tokenize(const Range &range,
-              const auto &predicate) noexcept {
-  return tokenize(range.begin(), range.end(), predicate);
+constexpr bool tokenize(const Range &range,
+                        auto &&predicate) noexcept {
+  return tokenize(std::begin(range), std::end(range),
+                  predicate);
 }
 } // namespace json
